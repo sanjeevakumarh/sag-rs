@@ -1,0 +1,24 @@
+# sag.toml.example — copy to `sag.toml` and edit. Every line is optional; delete
+# the file entirely and the runtime still boots on smart defaults (see
+# ARCHITECTURE.md "Config as the shared seam").
+#
+# Your real `sag.toml` is .gitignored because it names your machines/endpoints —
+# do NOT commit it. Keep secrets out of this file too; pass them via env
+# (figment layers: defaults -> sag.toml -> env -> CLI flags).
+
+[inference]
+engine = "auto"          # auto-detect; or "vllm" | "ollama" | "llamacpp"
+
+[retrieval]
+vector = "sqlite-vec"    # zero-setup default; or "qdrant"
+
+[retrieval.scout]
+enabled = true           # FastContext 4B repo scout (token filter)
+node    = "your-node"    # name of the node to place the scout on
+gate    = "repo-tasks"   # only run where it can save tokens
+
+[scheduler]
+strategy = "weighted"    # or "round-robin" for debugging
+
+[tools]
+sandbox = "bubblewrap"   # or "none" for trusted local dev

@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# SAG-RS secret guardrail (pre-commit).
+#
+# Blocks a commit that adds credentials, private keys, or local machine config,
+# so passwords / API keys / node addresses don't land in the repo by mistake.
+# Zero dependencies — pure git + grep, in keeping with the project's native-first
+# rule. It scans only the STAGED additions, not your whole tree.
+#
+# Enable it in a fresh clone with:   git config core.hooksPath .githooks
+# (setup-client.sh does this for you.)
+#
+# Escape hatches:
+#   • false positive on one line?  append   # pragma: allowlist secret
+#   • need to override entirely?    run      git commit --no-verify
+set -uo pipefail
+
+fail=0
+note() { printf '  \033[31m✗\033[0m %s\n' "$1"; fail=1; }
+
+# 1) Files that must stay local — block if any are staged (added/modified).
+while IFS= read -r f; do
+  [ -z "$f" ] && continue
+  [ "$f" = ".env.example" ] && continue
+  [ "$f" = "sag.toml.example" ] && continue
+  case "$f" in
+    sag.toml|*.local.toml|.env|.env.*|*.pem|*.key|*.p12|*.pfx|id_rsa|id_ed25519|*_rsa|secrets/*)
+      note "staged a local/secret file: $f  (unstage it, or add it to .gitignore)";;
+  esac
+done < <(git diff --cached --name-only --diff-filter=AM)
+
+# 2) Secret-looking content in added lines. Exclude this hook dir so the patterns
+#    below don't flag themselves. Drop lines carrying an allowlist pragma.
+staged_diff="$(git diff --cached --no-color -U0 -- . ':(exclude).githooks/' \
+  | grep '^+' | grep -v '^+++' | grep -v 'pragma: allowlist secret' || true)"
+
+scan() { # <regex> <label>
+  local hits
+  hits="$(printf '%s\n' "$staged_diff" | grep -nEi -e "$1" || true)"
+  if [ -n "$hits" ]; then
+    note "$2"
+    printf '%s\n' "$hits" | sed 's/^/        /' | head -5
+  fi
+}
+
+scan '-----BEGIN[ A-Z]*PRIVATE KEY-----'                        'private key block'
+scan 'AKIA[0-9A-Z]{16}'                                         'AWS access key id'
+scan '(ghp|gho|ghu|ghs|ghr)_[0-9A-Za-z]{36}'                    'GitHub token'
+scan 'github_pat_[0-9A-Za-z_]{22,}'                             'GitHub fine-grained PAT'
+scan 'xox[baprs]-[0-9A-Za-z-]{10,}'                             'Slack token'
+scan 'sk-(ant-)?[0-9A-Za-z_-]{20,}'                             'OpenAI/Anthropic-style API key'
+scan 'AIza[0-9A-Za-z_-]{35}'                                    'Google API key'
+scan '\b(password|passwd|secret|api[_-]?key|auth[_-]?token|access[_-]?token)\b["'"'"' ]*[:=]["'"'"' ]*[^[:space:]"'"'"']{8,}' \
+     'hardcoded credential assignment'
+# Private-range IPv4 — a proxy for machine addresses leaking out of local config.
+scan '\b(192\.168\.[0-9]{1,3}\.[0-9]{1,3}|10\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}|172\.(1[6-9]|2[0-9]|3[01])\.[0-9]{1,3}\.[0-9]{1,3})\b' \
+     'private IP address (node addresses belong in local sag.toml, not the repo)'
+
+if [ "$fail" -ne 0 ]; then
+  printf '\n\033[31mcommit blocked\033[0m: possible secret or local config above.\n'
+  printf '  Fix it, add "# pragma: allowlist secret" to a confirmed false positive,\n'
+  printf '  or override with: git commit --no-verify\n'
+  exit 1
+fi
+exit 0

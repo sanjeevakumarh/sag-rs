@@ -1,0 +1,10 @@
+[package]
+name = "sag-scheduler"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+sag-proto.workspace = true
+thiserror.workspace = true

@@ -1,0 +1,20 @@
+[package]
+name = "sag-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# The operator types `sag`, not `sag-cli` (see README Quickstart), so the binary
+# target is named `sag` while the package/lib keeps its `sag-cli` crate name.
+[[bin]]
+name = "sag"
+path = "src/main.rs"
+
+[dependencies]
+async-trait.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }
