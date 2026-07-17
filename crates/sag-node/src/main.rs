@@ -7,11 +7,20 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use anyhow::Context;
-use clap::Parser;
-use sag_inference::{FakeEndpoint, InferenceEndpoint};
+use clap::{Parser, ValueEnum};
+use sag_inference::{FakeEndpoint, InferenceEndpoint, OpenAiCompatEndpoint};
 use sag_node::describe;
 use sag_node::http::{router, NodeState};
 use sag_node::register::ControllerClient;
+
+/// Which inference backend this node serves models through.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum Backend {
+    /// Offline echo endpoint — no GPU, for tests and dry runs.
+    Fake,
+    /// A real OpenAI-compatible server (Ollama, vLLM, llama.cpp).
+    OpenaiCompat,
+}
 
 /// Run a SAG node agent.
 #[derive(Debug, Parser)]
@@ -37,7 +46,20 @@ struct Args {
     )]
     advertise: String,
 
-    /// A model id this node serves. Repeatable; defaults to a single fake echo model.
+    /// Inference backend: `fake` (echo) or `openai-compat` (a real `/v1` server).
+    #[arg(long, value_enum, env = "SAG_NODE_BACKEND", default_value = "fake")]
+    backend: Backend,
+
+    /// Base URL of the OpenAI-compatible server (used when backend = openai-compat).
+    #[arg(
+        long,
+        env = "SAG_NODE_BASE_URL",
+        default_value = "http://127.0.0.1:11434"
+    )]
+    base_url: String,
+
+    /// A model id this node serves. Repeatable. Defaults: a single fake model for
+    /// the fake backend; auto-discovery via `/v1/models` for openai-compat.
     #[arg(long = "model")]
     models: Vec<String>,
 }
@@ -51,20 +73,44 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let args = Args::parse();
-    let models = if args.models.is_empty() {
-        vec!["fake-echo".to_string()]
-    } else {
-        args.models.clone()
-    };
-    let descriptor = describe(&args.node_id, &args.advertise, &models);
 
-    // The models are reached through an InferenceEndpoint. This increment uses the
-    // Fake echo endpoint; the next swaps in a real OpenAI-compatible client by
-    // config — the /hello handler is identical either way.
-    let endpoint: Arc<dyn InferenceEndpoint> = Arc::new(FakeEndpoint);
+    // Pick the backend and resolve the model catalog. Both paths land behind the
+    // same Arc<dyn InferenceEndpoint>, so everything downstream is identical.
+    let (endpoint, models): (Arc<dyn InferenceEndpoint>, Vec<String>) = match args.backend {
+        Backend::Fake => {
+            let models = if args.models.is_empty() {
+                vec!["fake-echo".to_string()]
+            } else {
+                args.models.clone()
+            };
+            (Arc::new(FakeEndpoint), models)
+        }
+        Backend::OpenaiCompat => {
+            let endpoint = OpenAiCompatEndpoint::new(&args.base_url);
+            let models = if !args.models.is_empty() {
+                args.models.clone()
+            } else {
+                match endpoint.list_models().await {
+                    Ok(models) if !models.is_empty() => models,
+                    Ok(_) => {
+                        tracing::warn!(base_url = %args.base_url, "model server advertised no models");
+                        Vec::new()
+                    }
+                    Err(err) => {
+                        tracing::warn!(%err, base_url = %args.base_url, "model discovery failed; advertising none");
+                        Vec::new()
+                    }
+                }
+            };
+            (Arc::new(endpoint), models)
+        }
+    };
+    tracing::info!(backend = ?args.backend, models = ?models, "node inference backend ready");
+
+    let descriptor = describe(&args.node_id, &args.advertise, &models);
     let node_state = NodeState {
         node_id: args.node_id.clone(),
-        models: models.clone(),
+        models,
         endpoint,
     };
 

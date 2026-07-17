@@ -8,6 +8,12 @@ rust-version.workspace = true
 [dependencies]
 async-trait.workspace = true
 thiserror.workspace = true
+serde.workspace = true
+reqwest.workspace = true
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["rt", "macros"] }
+# A local axum stub stands in for a real model server, so the OpenAI-compatible
+# client is exercised over real HTTP with no GPU and no external network.
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
+axum.workspace = true
+serde_json.workspace = true
