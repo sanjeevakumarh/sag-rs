@@ -5,7 +5,7 @@
 SAG-RS lets a cluster of your own computers work together as a team of coding
 and research assistants, using models running locally on your own hardware
 instead of paying for cloud services. It's a Rust rewrite and evolution of an
-earlier project called **SAGIDE** — keeping the good ideas but making it
+earlier project [Structured Agent Graph IDE](https://github.com/sanjeevakumarh/Structured-Agent-Graph-IDE) — keeping the good ideas but making it
 lighter, faster, and command-line based. Simple enough to set up with two
 scripts, but easy to take apart and customize if you want to.
 
