@@ -22,6 +22,12 @@ struct Cli {
 enum Cmd {
     /// List the nodes registered with the controller.
     Nodes,
+    /// Greet every registered model and print each reply.
+    Hello {
+        /// Message to send. Defaults to a friendly greeting.
+        #[arg(long, short)]
+        message: Option<String>,
+    },
     /// Check that the controller is reachable.
     Doctor,
 }
@@ -30,6 +36,7 @@ impl From<Cmd> for Command {
     fn from(cmd: Cmd) -> Self {
         match cmd {
             Cmd::Nodes => Command::Nodes,
+            Cmd::Hello { message } => Command::Hello { message },
             Cmd::Doctor => Command::Doctor,
         }
     }

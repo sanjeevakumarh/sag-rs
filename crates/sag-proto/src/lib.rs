@@ -71,6 +71,39 @@ pub struct StatusResponse {
     pub start_epoch: u64,
 }
 
+/// `POST /hello` request. The client sends it to the controller, which fans the
+/// same body out to each node; a node runs it against every model it serves.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HelloRequest {
+    pub protocol_version: u32,
+    /// Prompt to send to each model. `None` → each hop applies its own default.
+    #[serde(default)]
+    pub message: Option<String>,
+}
+
+/// One `(node, model)` result within an aggregated hello. Exactly one of `reply`
+/// or `error` is set.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NodeHello {
+    pub node_id: String,
+    pub model: String,
+    #[serde(default)]
+    pub reply: Option<String>,
+    #[serde(default)]
+    pub error: Option<String>,
+    /// Round-trip latency for this call, in milliseconds.
+    #[serde(default)]
+    pub latency_ms: u64,
+}
+
+/// `POST /hello` response. A node returns one entry per model it serves; the
+/// controller concatenates every node's entries into one aggregate.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HelloResponse {
+    pub protocol_version: u32,
+    pub replies: Vec<NodeHello>,
+}
+
 /// A unit of work submitted to the runtime (e.g. `sag run fix`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Task {

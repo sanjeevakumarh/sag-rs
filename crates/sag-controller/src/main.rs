@@ -43,6 +43,7 @@ async fn main() -> anyhow::Result<()> {
     let state = AppState {
         registry: Arc::new(registry),
         start_epoch: now_epoch(),
+        http: reqwest::Client::new(),
     };
 
     let listener = tokio::net::TcpListener::bind(args.listen)

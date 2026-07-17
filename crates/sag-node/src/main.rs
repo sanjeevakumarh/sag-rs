@@ -4,11 +4,13 @@
 //! address is a single flag/env, defaulting to localhost (the co-located case).
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use anyhow::Context;
 use clap::Parser;
+use sag_inference::{FakeEndpoint, InferenceEndpoint};
 use sag_node::describe;
-use sag_node::http::router;
+use sag_node::http::{router, NodeState};
 use sag_node::register::ControllerClient;
 
 /// Run a SAG node agent.
@@ -56,13 +58,23 @@ async fn main() -> anyhow::Result<()> {
     };
     let descriptor = describe(&args.node_id, &args.advertise, &models);
 
+    // The models are reached through an InferenceEndpoint. This increment uses the
+    // Fake echo endpoint; the next swaps in a real OpenAI-compatible client by
+    // config — the /hello handler is identical either way.
+    let endpoint: Arc<dyn InferenceEndpoint> = Arc::new(FakeEndpoint);
+    let node_state = NodeState {
+        node_id: args.node_id.clone(),
+        models: models.clone(),
+        endpoint,
+    };
+
     // Serve the node's own surface in the background.
     let listener = tokio::net::TcpListener::bind(args.listen)
         .await
         .with_context(|| format!("binding node surface on {}", args.listen))?;
     tracing::info!(listen = %args.listen, "sag-node surface serving");
     tokio::spawn(async move {
-        if let Err(err) = axum::serve(listener, router()).await {
+        if let Err(err) = axum::serve(listener, router(node_state)).await {
             tracing::error!(%err, "node surface stopped");
         }
     });

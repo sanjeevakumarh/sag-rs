@@ -8,13 +8,18 @@
 //! `main.rs`; the `attach` TUI (`ratatui`) arrives later.
 
 use async_trait::async_trait;
-use sag_proto::{NodeDescriptor, NodesResponse, StatusResponse};
+use sag_proto::{
+    HelloRequest, HelloResponse, NodeDescriptor, NodeHello, NodesResponse, StatusResponse,
+    PROTOCOL_VERSION,
+};
 
 /// A parsed command the CLI can dispatch.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
     /// `sag nodes` — list the nodes registered with the controller.
     Nodes,
+    /// `sag hello [--message ...]` — greet every registered model, show replies.
+    Hello { message: Option<String> },
     /// `sag run fix "<request>"`
     RunFix { request: String },
     /// `sag doctor`
@@ -45,7 +50,7 @@ pub struct FakeCli;
 impl CommandDispatch for FakeCli {
     async fn dispatch(&self, cmd: Command) -> Result<String, CliError> {
         Ok(match cmd {
-            Command::Nodes => "no nodes registered".into(),
+            Command::Nodes | Command::Hello { .. } => "no nodes registered".into(),
             Command::RunFix { request } if request.trim().is_empty() => {
                 return Err(CliError::EmptyRequest)
             }
@@ -83,6 +88,24 @@ impl HttpDispatch {
             .await
             .map_err(|e| CliError::Controller(format!("{url}: {e}")))
     }
+
+    async fn post_json<B: serde::Serialize, T: serde::de::DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<T, CliError> {
+        let url = format!("{}{path}", self.controller_url);
+        self.http
+            .post(&url)
+            .json(body)
+            .send()
+            .await
+            .and_then(|r| r.error_for_status())
+            .map_err(|e| CliError::Controller(format!("{url}: {e}")))?
+            .json()
+            .await
+            .map_err(|e| CliError::Controller(format!("{url}: {e}")))
+    }
 }
 
 #[async_trait]
@@ -92,6 +115,14 @@ impl CommandDispatch for HttpDispatch {
             Command::Nodes => {
                 let resp: NodesResponse = self.get_json("/nodes").await?;
                 Ok(format_nodes(&resp.nodes))
+            }
+            Command::Hello { message } => {
+                let req = HelloRequest {
+                    protocol_version: PROTOCOL_VERSION,
+                    message,
+                };
+                let resp: HelloResponse = self.post_json("/hello", &req).await?;
+                Ok(format_hello(&resp.replies))
             }
             Command::Doctor => {
                 let resp: StatusResponse = self.get_json("/status").await?;
@@ -126,6 +157,35 @@ pub fn format_nodes(nodes: &[NodeDescriptor]) -> String {
         out.push_str(&format!("{:<16} {:<30} {}\n", n.node_id, n.addr, models));
     }
     out.trim_end().to_string()
+}
+
+/// Render an aggregated hello as a table: one row per `(node, model)`.
+pub fn format_hello(replies: &[NodeHello]) -> String {
+    if replies.is_empty() {
+        return "no nodes registered".to_string();
+    }
+    let mut out = format!("{:<12} {:<18} {:>6}  {}\n", "NODE", "MODEL", "MS", "REPLY");
+    for r in replies {
+        let text = match (&r.reply, &r.error) {
+            (Some(reply), _) => truncate(&reply.replace('\n', " "), 120),
+            (None, Some(err)) => format!("ERROR: {}", truncate(err, 110)),
+            (None, None) => "(no reply)".to_string(),
+        };
+        out.push_str(&format!(
+            "{:<12} {:<18} {:>6}  {}\n",
+            r.node_id, r.model, r.latency_ms, text
+        ));
+    }
+    out.trim_end().to_string()
+}
+
+/// Clip `s` to at most `max` characters, appending `…` when truncated.
+fn truncate(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let clipped: String = s.chars().take(max.saturating_sub(1)).collect();
+    format!("{clipped}…")
 }
 
 #[cfg(test)]
@@ -182,5 +242,31 @@ mod tests {
         assert!(table.contains("gmkmini"));
         assert!(table.contains("http://gmkmini:8080"));
         assert!(table.contains("qwen3-coder:30b, gpt-oss:20b"));
+    }
+
+    #[test]
+    fn format_hello_renders_replies_and_errors() {
+        assert_eq!(format_hello(&[]), "no nodes registered");
+
+        let replies = vec![
+            NodeHello {
+                node_id: "gmkmini".into(),
+                model: "qwen3-coder:30b".into(),
+                reply: Some("Hello!".into()),
+                error: None,
+                latency_ms: 42,
+            },
+            NodeHello {
+                node_id: "hptowerz".into(),
+                model: "gpt-oss:20b".into(),
+                reply: None,
+                error: Some("connection refused".into()),
+                latency_ms: 0,
+            },
+        ];
+        let table = format_hello(&replies);
+        assert!(table.contains("gmkmini"));
+        assert!(table.contains("Hello!"));
+        assert!(table.contains("ERROR: connection refused"));
     }
 }

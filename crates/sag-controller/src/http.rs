@@ -5,6 +5,7 @@
 //!   leader-election probe.
 //! - `GET  /nodes` — the current registry.
 //! - `POST /register` — a node announcing itself (upsert).
+//! - `POST /hello` — fan the prompt out to every registered node, aggregate.
 //!
 //! Handlers are plain async fns over [`AppState`], so they are unit-tested by
 //! calling them directly with constructed extractors — no bound port, no tower.
@@ -16,8 +17,10 @@ use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use sag_proto::{
-    NodesResponse, RegisterRequest, RegisterResponse, StatusResponse, PROTOCOL_VERSION,
+    HelloRequest, HelloResponse, NodeDescriptor, NodeHello, NodesResponse, RegisterRequest,
+    RegisterResponse, StatusResponse, PROTOCOL_VERSION,
 };
+use tokio::task::JoinSet;
 
 use crate::registry::NodeRegistry;
 
@@ -27,6 +30,8 @@ pub struct AppState {
     pub registry: Arc<dyn NodeRegistry>,
     /// Unix seconds this controller started — reported on `/status` for election.
     pub start_epoch: u64,
+    /// Client for fanning `/hello` out to nodes (connection-pooled, cheap to clone).
+    pub http: reqwest::Client,
 }
 
 /// Build the controller router over the given state.
@@ -35,6 +40,7 @@ pub fn router(state: AppState) -> Router {
         .route("/status", get(status))
         .route("/nodes", get(list_nodes))
         .route("/register", post(register))
+        .route("/hello", post(hello))
         .with_state(state)
 }
 
@@ -83,6 +89,82 @@ async fn register(
     }))
 }
 
+async fn hello(
+    State(state): State<AppState>,
+    Json(req): Json<HelloRequest>,
+) -> Result<Json<HelloResponse>, StatusCode> {
+    let nodes = state.registry.list().await.map_err(|err| {
+        tracing::error!(%err, "listing nodes for hello failed");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    // Fan out concurrently: one node's slow model must not stall the others.
+    let mut set = JoinSet::new();
+    for node in nodes {
+        let http = state.http.clone();
+        let req = req.clone();
+        set.spawn(async move { call_node(http, node, req).await });
+    }
+
+    let mut replies = Vec::new();
+    while let Some(joined) = set.join_next().await {
+        match joined {
+            Ok(mut node_replies) => replies.append(&mut node_replies),
+            Err(err) => tracing::error!(%err, "hello fan-out task panicked"),
+        }
+    }
+    // Stable order so output and tests are deterministic despite concurrency.
+    replies.sort_by(|a, b| (&a.node_id, &a.model).cmp(&(&b.node_id, &b.model)));
+
+    Ok(Json(HelloResponse {
+        protocol_version: PROTOCOL_VERSION,
+        replies,
+    }))
+}
+
+/// Call one node's `/hello`, returning its per-model replies — or, on any failure,
+/// an error entry per model so the caller still sees the node in the aggregate.
+async fn call_node(
+    http: reqwest::Client,
+    node: NodeDescriptor,
+    req: HelloRequest,
+) -> Vec<NodeHello> {
+    let url = format!("{}/hello", node.addr.trim_end_matches('/'));
+    let result = http
+        .post(&url)
+        .json(&req)
+        .send()
+        .await
+        .and_then(|r| r.error_for_status());
+    match result {
+        Ok(resp) => match resp.json::<HelloResponse>().await {
+            Ok(hello) => hello.replies,
+            Err(err) => error_replies(&node, &err.to_string()),
+        },
+        Err(err) => error_replies(&node, &err.to_string()),
+    }
+}
+
+/// One error entry per model the node advertised (or a single `?` if it declared
+/// none), so a node that failed to answer still shows up in the table.
+fn error_replies(node: &NodeDescriptor, err: &str) -> Vec<NodeHello> {
+    let models: Vec<String> = if node.models.is_empty() {
+        vec!["?".to_string()]
+    } else {
+        node.models.iter().map(|m| m.id.clone()).collect()
+    };
+    models
+        .into_iter()
+        .map(|model| NodeHello {
+            node_id: node.node_id.clone(),
+            model,
+            reply: None,
+            error: Some(err.to_string()),
+            latency_ms: 0,
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -93,6 +175,7 @@ mod tests {
         AppState {
             registry: Arc::new(MemoryRegistry::new()),
             start_epoch: 1_700_000_000,
+            http: reqwest::Client::new(),
         }
     }
 
