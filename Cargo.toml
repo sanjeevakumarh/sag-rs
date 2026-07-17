@@ -1,0 +1,53 @@
+# SAG-RS workspace — virtual manifest.
+# One crate per concept (see ARCHITECTURE.md "Crate layout"). Each crate exposes
+# exactly one trait (its swap seam) at the top of its lib.rs, ships a `Fake` impl,
+# and passes `cargo test -p <crate>` with no cluster, network, or GPU.
+[workspace]
+resolver = "2"
+members = [
+    "crates/sag-proto",
+    "crates/sag-engine",
+    "crates/sag-scheduler",
+    "crates/sag-inference",
+    "crates/sag-retrieval",
+    "crates/sag-tools",
+    "crates/sag-store",
+    "crates/sag-node",
+    "crates/sag-controller",
+    "crates/sag-cli",
+]
+# The three binaries a homelab operator actually launches. Everything else is a
+# library seam they compose. `cargo build` (no -p) builds just these.
+default-members = [
+    "crates/sag-cli",
+    "crates/sag-controller",
+    "crates/sag-node",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+rust-version = "1.90"
+
+# Shared dependency versions. Crates opt in by name with `workspace = true`; step 1
+# stays deliberately thin (no reqwest/sqlx/figment/clap yet — those arrive with the
+# build-order step that needs them).
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+async-trait = "0.1"
+thiserror = "2"
+anyhow = "1"
+tokio = { version = "1", features = ["rt", "macros"] }
+
+# Internal crates.
+sag-proto = { path = "crates/sag-proto" }
+sag-engine = { path = "crates/sag-engine" }
+sag-scheduler = { path = "crates/sag-scheduler" }
+sag-inference = { path = "crates/sag-inference" }
+sag-retrieval = { path = "crates/sag-retrieval" }
+sag-tools = { path = "crates/sag-tools" }
+sag-store = { path = "crates/sag-store" }
+sag-node = { path = "crates/sag-node" }
+sag-controller = { path = "crates/sag-controller" }
