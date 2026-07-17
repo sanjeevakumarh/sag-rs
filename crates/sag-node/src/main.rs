@@ -13,17 +13,33 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use clap::{Parser, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
 use sag_controller::http::AppState;
 use sag_controller::now_epoch;
 use sag_controller::registry::MemoryRegistry;
 use sag_inference::{FakeEndpoint, InferenceEndpoint, OpenAiCompatEndpoint};
+use sag_node::bootstrap::{detect, SystemProbe};
 use sag_node::describe;
 use sag_node::http::{router, NodeState};
 use sag_node::locate::{discover_leader, remote_outranks_self};
 use sag_node::register::ControllerClient;
 use sag_proto::NodeDescriptor;
 use tokio::sync::oneshot;
+
+#[derive(Debug, Parser)]
+#[command(name = "sag-node", version)]
+struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Debug, Subcommand)]
+enum Command {
+    /// Detect this box (OS + GPU) and print how to serve; then run `sag-node run`.
+    Bootstrap,
+    /// Run the node agent: serve, discover/elect a controller, register.
+    Run(Box<RunArgs>),
+}
 
 /// Which inference backend this node serves models through.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -34,10 +50,9 @@ enum Backend {
     OpenaiCompat,
 }
 
-/// Run a SAG node agent.
+/// Arguments for `sag-node run`.
 #[derive(Debug, Parser)]
-#[command(name = "sag-node", version)]
-struct Args {
+struct RunArgs {
     /// Stable identity for this node in the registry.
     #[arg(long, env = "SAG_NODE_ID", default_value = "node-local")]
     node_id: String,
@@ -109,7 +124,34 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let args = Args::parse();
+    match Cli::parse().command {
+        Command::Bootstrap => {
+            run_bootstrap();
+            Ok(())
+        }
+        Command::Run(args) => run_node(*args).await,
+    }
+}
+
+/// Detect the box and print a plan. Side-effect-free, so it is safe to re-run.
+fn run_bootstrap() {
+    let detection = detect(std::env::consts::OS, &SystemProbe);
+    println!("sag-node bootstrap");
+    println!("  os:               {}", detection.os);
+    println!("  gpu:              {}", detection.gpu.as_str());
+    println!("  serving engine:   {}", detection.engine);
+    println!();
+    println!("Next: point a model server (the engine above) at an OpenAI /v1 port,");
+    println!("then start the node — it auto-discovers the model catalog:");
+    println!();
+    println!("  sag-node run --backend openai-compat \\");
+    println!("    --base-url http://127.0.0.1:11434 \\");
+    println!("    --peer http://<controller-host>:7000");
+    println!();
+    println!("With no reachable controller on --peer, this box self-promotes to one.");
+}
+
+async fn run_node(args: RunArgs) -> anyhow::Result<()> {
     let eligible = !args.disable_self_promote;
     let peers = resolve_peers(&args);
     let advertise_self = args.controller_advertise.trim_end_matches('/').to_string();
@@ -211,7 +253,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 /// The known peer list: explicit `--peer`s, or the single `--controller` fallback.
-fn resolve_peers(args: &Args) -> Vec<String> {
+fn resolve_peers(args: &RunArgs) -> Vec<String> {
     let raw = if args.peers.is_empty() {
         std::slice::from_ref(&args.controller)
     } else {
@@ -223,7 +265,7 @@ fn resolve_peers(args: &Args) -> Vec<String> {
 }
 
 /// Build the inference endpoint and resolve the model catalog for the chosen backend.
-async fn build_backend(args: &Args) -> (Arc<dyn InferenceEndpoint>, Vec<String>) {
+async fn build_backend(args: &RunArgs) -> (Arc<dyn InferenceEndpoint>, Vec<String>) {
     match args.backend {
         Backend::Fake => {
             let models = if args.models.is_empty() {
@@ -260,7 +302,7 @@ async fn build_backend(args: &Args) -> (Arc<dyn InferenceEndpoint>, Vec<String>)
 /// in-memory registry — nodes heartbeat, so it refills; the standalone
 /// `sag-controller` binary is the durable one.
 async fn promote(
-    args: &Args,
+    args: &RunArgs,
     http: reqwest::Client,
 ) -> anyhow::Result<(String, oneshot::Sender<()>, u64)> {
     let start_epoch = now_epoch();

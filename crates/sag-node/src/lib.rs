@@ -10,6 +10,7 @@
 //! `/status`), [`http`] the node's own surface, and [`describe`] builds the
 //! [`NodeDescriptor`] this node advertises.
 
+pub mod bootstrap;
 pub mod http;
 pub mod locate;
 pub mod register;

@@ -5,6 +5,32 @@
 # Your real `sag.toml` is .gitignored because it names your machines/endpoints —
 # do NOT commit it. Keep secrets out of this file too; pass them via env
 # (figment layers: defaults -> sag.toml -> env -> CLI flags).
+#
+# NOTE: for the end-to-end `sag hello` milestone the binaries read the control-plane
+# settings below as CLI flags / SAG_* env (shown per line). File loading via figment
+# is the next config step; these keys are the stable surface it will layer onto.
+
+# The known peer list every node and the client probe to find (or elect) a
+# controller. Leader = earliest-started controller (ties: latency, then URL). A node
+# that finds no controller here self-promotes to one itself.
+#   flag: --peer http://host:7000  (repeatable, on both sag-node and sag)
+peers = [
+  "http://127.0.0.1:7000",
+  # "http://gmkmini.lan:7000",
+  # "http://hptowerz.lan:7000",
+]
+
+[node]
+# id        = "gmkmini"                     # --node-id                / SAG_NODE_ID
+# advertise = "http://gmkmini.lan:8080"     # --advertise             / SAG_NODE_ADVERTISE
+# backend   = "openai-compat"               # --backend               / SAG_NODE_BACKEND  (or "fake")
+# base_url  = "http://127.0.0.1:11434"      # --base-url              / SAG_NODE_BASE_URL
+# models    = []                            # --model (repeatable); empty = auto-discover via /v1/models
+
+[controller]
+# listen    = "0.0.0.0:7000"                # --controller-listen     / SAG_CONTROLLER_LISTEN
+# advertise = "http://gmkmini.lan:7000"     # --controller-advertise  / SAG_CONTROLLER_ADVERTISE
+# db        = "sqlite://sag-controller.db"  # --db (standalone controller) / SAG_CONTROLLER_DB
 
 [inference]
 engine = "auto"          # auto-detect; or "vllm" | "ollama" | "llamacpp"
