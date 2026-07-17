@@ -5,12 +5,17 @@
 
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use sag_cli::{Command, CommandDispatch, HttpDispatch};
+use sag_cli::{discover_controller, Command, CommandDispatch, HttpDispatch};
 
 #[derive(Debug, Parser)]
 #[command(name = "sag", version, about = "SAG-RS control CLI")]
 struct Cli {
-    /// Controller base URL. Peer-list discovery replaces this default later.
+    /// A controller candidate URL. Repeatable — the client probes this peer list
+    /// and talks to whichever controller it elects. Defaults to `--controller`.
+    #[arg(long = "peer")]
+    peers: Vec<String>,
+
+    /// Convenience single-controller URL, used when no `--peer` is given.
     #[arg(long, env = "SAG_CONTROLLER", default_value = "http://127.0.0.1:7000")]
     controller: String,
 
@@ -45,7 +50,18 @@ impl From<Cmd> for Command {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    let dispatch = HttpDispatch::new(&cli.controller);
+    let peers: Vec<String> = if cli.peers.is_empty() {
+        vec![cli.controller.clone()]
+    } else {
+        cli.peers.clone()
+    };
+
+    let http = reqwest::Client::new();
+    let controller = discover_controller(&http, &peers)
+        .await
+        .with_context(|| format!("no controller reachable among peers: {peers:?}"))?;
+
+    let dispatch = HttpDispatch::new(controller);
     let output = dispatch
         .dispatch(cli.command.into())
         .await

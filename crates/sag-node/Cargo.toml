@@ -8,6 +8,9 @@ rust-version.workspace = true
 [dependencies]
 sag-proto.workspace = true
 sag-inference.workspace = true
+# A node embeds the controller when it self-promotes (no controller found on the
+# peer list), so it depends on the controller crate for that path.
+sag-controller.workspace = true
 async-trait.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true

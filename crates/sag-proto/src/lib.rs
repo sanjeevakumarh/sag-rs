@@ -71,6 +71,17 @@ pub struct StatusResponse {
     pub start_epoch: u64,
 }
 
+impl StatusResponse {
+    /// The election key for this controller given a measured round-trip
+    /// `latency_ms`. Leadership goes to the **smallest** key: the earliest-started
+    /// controller, breaking ties by lowest latency. Callers add a final stable
+    /// tiebreak (the controller's URL) so the choice always converges. See the
+    /// milestone design: "leader = min by (start_epoch, latency)".
+    pub fn election_key(&self, latency_ms: u64) -> (u64, u64) {
+        (self.start_epoch, latency_ms)
+    }
+}
+
 /// `POST /hello` request. The client sends it to the controller, which fans the
 /// same body out to each node; a node runs it against every model it serves.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -195,5 +206,21 @@ mod tests {
         // The model's unknown `future_flag` was ignored; its `capabilities` defaulted.
         assert_eq!(node.models[0].id, "gpt-oss:20b");
         assert!(node.models[0].capabilities.is_empty());
+    }
+
+    #[test]
+    fn election_key_prefers_earlier_start_then_lower_latency() {
+        let early = StatusResponse {
+            protocol_version: PROTOCOL_VERSION,
+            start_epoch: 100,
+        };
+        let late = StatusResponse {
+            protocol_version: PROTOCOL_VERSION,
+            start_epoch: 200,
+        };
+        // Earlier start wins even with much worse latency.
+        assert!(early.election_key(9_000) < late.election_key(1));
+        // Same start → lower latency wins.
+        assert!(early.election_key(5) < early.election_key(50));
     }
 }

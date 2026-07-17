@@ -188,6 +188,44 @@ fn truncate(s: &str, max: usize) -> String {
     format!("{clipped}…")
 }
 
+/// Probe the peer list and return the leader controller's URL, or `None` if none
+/// answers. Same election the node uses — `min` by `(start_epoch, latency)` with a
+/// URL tiebreak (via [`StatusResponse::election_key`]) — so the client talks to the
+/// same controller nodes registered with. Kept here rather than shared with
+/// `sag-node` so the CLI doesn't pull in the node's heavier dependency graph.
+pub async fn discover_controller(http: &reqwest::Client, peers: &[String]) -> Option<String> {
+    use std::time::{Duration, Instant};
+
+    let mut best: Option<((u64, u64), String)> = None;
+    for peer in peers {
+        let url = peer.trim_end_matches('/').to_string();
+        let started = Instant::now();
+        let resp = match http
+            .get(format!("{url}/status"))
+            .timeout(Duration::from_secs(2))
+            .send()
+            .await
+            .and_then(|r| r.error_for_status())
+        {
+            Ok(resp) => resp,
+            Err(_) => continue,
+        };
+        let latency_ms = started.elapsed().as_millis() as u64;
+        let Ok(status) = resp.json::<StatusResponse>().await else {
+            continue;
+        };
+        let key = status.election_key(latency_ms);
+        let better = match &best {
+            None => true,
+            Some((best_key, best_url)) => key < *best_key || (key == *best_key && url < *best_url),
+        };
+        if better {
+            best = Some((key, url));
+        }
+    }
+    best.map(|(_, url)| url)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

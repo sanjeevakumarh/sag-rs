@@ -11,6 +11,7 @@
 //! [`NodeDescriptor`] this node advertises.
 
 pub mod http;
+pub mod locate;
 pub mod register;
 
 use async_trait::async_trait;
