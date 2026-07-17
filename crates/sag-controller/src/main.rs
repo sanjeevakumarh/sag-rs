@@ -15,7 +15,7 @@ use sag_controller::{now_epoch, registry::SqliteRegistry};
 #[command(name = "sag-controller", version)]
 struct Args {
     /// Address to listen on (host:port).
-    #[arg(long, env = "SAG_CONTROLLER_LISTEN", default_value = "0.0.0.0:7000")]
+    #[arg(long, env = "SAG_CONTROLLER_LISTEN", default_value = "0.0.0.0:7700")]
     listen: SocketAddr,
 
     /// SQLite connection string for the durable registry.

@@ -63,18 +63,18 @@ struct RunArgs {
     peers: Vec<String>,
 
     /// Convenience single-controller URL, used when no `--peer` is given.
-    #[arg(long, env = "SAG_CONTROLLER", default_value = "http://127.0.0.1:7000")]
+    #[arg(long, env = "SAG_CONTROLLER", default_value = "http://127.0.0.1:7700")]
     controller: String,
 
     /// Address this node's own surface listens on.
-    #[arg(long, env = "SAG_NODE_LISTEN", default_value = "0.0.0.0:8080")]
+    #[arg(long, env = "SAG_NODE_LISTEN", default_value = "0.0.0.0:7701")]
     listen: SocketAddr,
 
     /// URL peers should reach this node at (what gets advertised).
     #[arg(
         long,
         env = "SAG_NODE_ADVERTISE",
-        default_value = "http://127.0.0.1:8080"
+        default_value = "http://127.0.0.1:7701"
     )]
     advertise: String,
 
@@ -100,14 +100,14 @@ struct RunArgs {
     disable_self_promote: bool,
 
     /// Address the in-process controller listens on if this node self-promotes.
-    #[arg(long, env = "SAG_CONTROLLER_LISTEN", default_value = "0.0.0.0:7000")]
+    #[arg(long, env = "SAG_CONTROLLER_LISTEN", default_value = "0.0.0.0:7700")]
     controller_listen: SocketAddr,
 
     /// URL the self-promoted controller advertises (must be in peers' lists).
     #[arg(
         long,
         env = "SAG_CONTROLLER_ADVERTISE",
-        default_value = "http://127.0.0.1:7000"
+        default_value = "http://127.0.0.1:7700"
     )]
     controller_advertise: String,
 
@@ -146,7 +146,7 @@ fn run_bootstrap() {
     println!();
     println!("  sag-node run --backend openai-compat \\");
     println!("    --base-url http://127.0.0.1:11434 \\");
-    println!("    --peer http://<controller-host>:7000");
+    println!("    --peer http://<controller-host>:7700");
     println!();
     println!("With no reachable controller on --peer, this box self-promotes to one.");
 }

@@ -16,7 +16,7 @@ struct Cli {
     peers: Vec<String>,
 
     /// Convenience single-controller URL, used when no `--peer` is given.
-    #[arg(long, env = "SAG_CONTROLLER", default_value = "http://127.0.0.1:7000")]
+    #[arg(long, env = "SAG_CONTROLLER", default_value = "http://127.0.0.1:7700")]
     controller: String,
 
     #[command(subcommand)]
