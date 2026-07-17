@@ -9,6 +9,10 @@ rust-version.workspace = true
 sag-proto.workspace = true
 async-trait.workspace = true
 thiserror.workspace = true
+# The engine is actor-style: a coordinator owns graph state and workers report
+# back over an mpsc channel (ARCHITECTURE.md "One Rust-specific caution"). Needs
+# the runtime (spawn), sync (mpsc), and time (retry backoff) features.
+tokio = { workspace = true, features = ["rt", "sync", "time"] }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["rt", "macros"] }
+tokio = { workspace = true, features = ["macros", "rt", "time"] }

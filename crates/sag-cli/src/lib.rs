@@ -71,9 +71,7 @@ mod tests {
     async fn empty_run_fix_request_is_an_error() {
         assert!(matches!(
             FakeCli
-                .dispatch(Command::RunFix {
-                    request: "".into()
-                })
+                .dispatch(Command::RunFix { request: "".into() })
                 .await,
             Err(CliError::EmptyRequest)
         ));
