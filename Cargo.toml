@@ -30,16 +30,40 @@ edition = "2021"
 license = "MIT"
 rust-version = "1.90"
 
-# Shared dependency versions. Crates opt in by name with `workspace = true`; step 1
-# stays deliberately thin (no reqwest/sqlx/figment/clap yet — those arrive with the
-# build-order step that needs them).
+# Shared dependency versions. Crates opt in by name with `workspace = true`.
+# Deps arrive with the build-order step that needs them: the networked crates
+# (axum/reqwest/sqlx/clap) land with the end-to-end `sag hello` milestone.
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 async-trait = "0.1"
 thiserror = "2"
 anyhow = "1"
-tokio = { version = "1", features = ["rt", "macros"] }
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "net",
+    "time",
+    "sync",
+    "signal",
+] }
+# LAN transport is axum + JSON for v1 (curl-debuggable); reqwest is the client
+# side of the same wire. rustls (not native-tls) to avoid an OpenSSL build dep.
+axum = "0.8"
+reqwest = { version = "0.13", default-features = false, features = [
+    "json",
+    "rustls",
+] }
+clap = { version = "4", features = ["derive", "env"] }
+# Durable registry/state: sqlite over WAL; migrations embedded and run at startup.
+sqlx = { version = "0.9", default-features = false, features = [
+    "runtime-tokio",
+    "sqlite",
+    "macros",
+    "migrate",
+] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Internal crates.
 sag-proto = { path = "crates/sag-proto" }

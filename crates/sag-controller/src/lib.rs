@@ -3,11 +3,30 @@
 //! Swap seam: [`Controller`]. It accepts a [`Task`], schedules it onto a node,
 //! drives the engine, persists state, and hands back a run id the caller polls.
 //! One controller + SQLite leases is enough for several nodes (ARCHITECTURE.md
-//! "No NATS initially"). Step 1 defines the seam plus a [`FakeController`] that
-//! assigns a deterministic run id; the binary (`main.rs`) is a thin entrypoint.
+//! "No NATS initially").
+//!
+//! The end-to-end `sag hello` milestone adds the controller's networked surface:
+//! [`http`] is the `axum` + JSON LAN transport, and [`registry`] the durable node
+//! registry nodes register into. The [`Controller`] task-submission seam is
+//! unchanged for now — the engine/scheduler wiring behind it lands in a later step.
+
+pub mod http;
+pub mod registry;
+
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use sag_proto::Task;
+
+/// Unix seconds now — stamped as a controller's `start_epoch` for leader election
+/// (leader = `min` by `(start_epoch, latency)`). Saturates at the epoch on the
+/// impossible pre-1970 clock rather than panicking.
+pub fn now_epoch() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum ControlError {

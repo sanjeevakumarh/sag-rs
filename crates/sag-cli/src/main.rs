@@ -1,12 +1,48 @@
-//! `sag-cli` binary — thin entrypoint. The seam and its tests live in `lib.rs`;
-//! this just proves the binary builds and links. Real argument parsing (`clap`)
-//! and the `attach` TUI (`ratatui`) arrive with later build steps.
+//! `sag` binary — the operator's entrypoint. Parses a subcommand with `clap` and
+//! dispatches it to a controller over JSON. This increment ships `sag nodes` (list
+//! the registry) and `sag doctor` (probe the controller); more subcommands and the
+//! `attach` TUI arrive later.
 
-fn main() -> anyhow::Result<()> {
-    println!(
-        "sag {} — pre-alpha skeleton; the runtime is not wired up yet.",
-        env!("CARGO_PKG_VERSION")
-    );
-    println!("Getting started: see the Quickstart in README.md.");
+use anyhow::Context;
+use clap::{Parser, Subcommand};
+use sag_cli::{Command, CommandDispatch, HttpDispatch};
+
+#[derive(Debug, Parser)]
+#[command(name = "sag", version, about = "SAG-RS control CLI")]
+struct Cli {
+    /// Controller base URL. Peer-list discovery replaces this default later.
+    #[arg(long, env = "SAG_CONTROLLER", default_value = "http://127.0.0.1:7000")]
+    controller: String,
+
+    #[command(subcommand)]
+    command: Cmd,
+}
+
+#[derive(Debug, Subcommand)]
+enum Cmd {
+    /// List the nodes registered with the controller.
+    Nodes,
+    /// Check that the controller is reachable.
+    Doctor,
+}
+
+impl From<Cmd> for Command {
+    fn from(cmd: Cmd) -> Self {
+        match cmd {
+            Cmd::Nodes => Command::Nodes,
+            Cmd::Doctor => Command::Doctor,
+        }
+    }
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+    let dispatch = HttpDispatch::new(&cli.controller);
+    let output = dispatch
+        .dispatch(cli.command.into())
+        .await
+        .context("dispatching command")?;
+    println!("{output}");
     Ok(())
 }
